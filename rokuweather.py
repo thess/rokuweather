@@ -8,7 +8,7 @@ Command-line opts:
 
 -h, --help      This text
 -v, --verbose   Turn on debug output
--l, --location  Location (City,State) Ex: "Hudson,MA"
+-l, --location  Location (City,State) Default: "Boston,MA"
 -t, --type      Display type (1 := M1000/1, 2 := R1000)
 -r, --reset     Reset Soundbridge and exit sketch
 
@@ -45,7 +45,7 @@ def main(argv=None):
 
     wind_vector = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW']
 
-    location = "Hudson,MA"
+    location = "Boston,MA"
     # Type 1 := 280x16, 2 := 280x32
     display_type = 1
     sb_open = False
