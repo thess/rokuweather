@@ -231,7 +231,7 @@ def main(argv=None):
                     rising = atmos.attrib.get('rising')
                     baro = {'0': 'steady', '1': 'rising', '2': 'falling'}[rising]
 
-                    wvector = wind_vector[int(float(wdir) / 22.5)]
+                    wvector = wind_vector[int((float(wdir) / 22.5) + 0.5) % 16]
                     if (debug_output):
                         print("Current conditions: ({})\nTemp: {}\xb0{} {}, ".format(ccode, ctemp, temp_units, ccond),
                               end='')
@@ -287,6 +287,8 @@ def main(argv=None):
 
                 # Update display (select screen)
                 for disp_num in range(4):
+                    if (debug_output):
+                        print("Screen {}: {}".format(disp_num, time.ctime()[11:19]))
                     if (display_panels[disp_num](screen, screen.dpytype)):
                         time.sleep(dpy_delay)
 
