@@ -1,7 +1,7 @@
 # Telnet comms to Roku Soundbridge
 
 from telnetlib import Telnet as TN
-
+import socket
 
 # Font List for costumization:
 #  1 - Fixed8
@@ -26,18 +26,23 @@ class rokuSB:
                 print("SB not responding")
                 self.sb.close()
                 return False
-        except ConnectionError:
-            print("SB not found or connect failure")
+        except (ConnectionError, socket.error) as err:
+            print("SoundBridge '{}', not found or connect failure = {}".format(host, err))
             return False
 
+        self.ecount = 0
         return True
 
     def close(self):
-        self.cmd("sketch -c clear")
-        self.cmd("sketch -c exit")
-        self.cmd("irman off")
-        self.cmd("exit")
-        self.sb.close()
+        if (self.sb.get_socket() is None):
+            return
+        try:
+            self.cmd("sketch -c clear")
+            self.cmd("sketch -c exit")
+            self.cmd("irman off")
+            self.cmd("exit")
+        finally:
+            self.sb.close()
 
     # Optional args to msg (soundbridge display)
     #
@@ -70,7 +75,12 @@ class rokuSB:
         return
 
     def cmd(self, text):
-        self.sb.write(text.encode('utf-8') + b'\n')
+        try:
+            self.sb.write(text.encode('utf-8') + b'\n')
+        except socket.error:
+            if (self.sb.get_socket() is not None):
+                self.sb.close()
+            raise
 
     def clear(self):
         self.cmd("sketch -c clear")

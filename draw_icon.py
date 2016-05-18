@@ -1,6 +1,7 @@
 # Test drawing weather icon to Roku
 
 import sys
+import socket
 
 
 # Define generator for pbm tokens
@@ -61,9 +62,12 @@ def draw_icon(sb, code, locx, locy):
         # Close tokenizer
         t.close()
 
-    except IOError:
+    except:
         print("Problem processing {}.pbm file. Err = {}".format(prefix + code, sys.exc_info()[0]))
-    finally:
+        f.close()
+        raise
+
+    else:
         f.close()
 
     return

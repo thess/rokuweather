@@ -16,6 +16,7 @@ Command-line opts:
 import sys
 import getopt
 import time
+import socket
 
 import requests
 import xml.etree.ElementTree as ET
@@ -296,11 +297,11 @@ def main(argv=None):
                 err = sys.exc_info()[0]
                 if (sb_open):
                     screen.close()
-                    sb_open = False
                 if (err == KeyboardInterrupt):
                     return 0
-                eprint("Network or other error:", err)
+                eprint("Caught network or other error:", err)
                 # Continue and try re-connect
+                sb_open = False
                 time.sleep(30)
 
     except Usage as err:
