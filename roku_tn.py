@@ -1,7 +1,8 @@
 # Telnet comms to Roku Soundbridge
 
-from telnetlib import Telnet as TN
 import socket
+from telnetlib import Telnet as TN
+
 
 # Font List for costumization:
 #  1 - Fixed8
@@ -16,6 +17,7 @@ class rokuSB:
     def __init__(self, dtype):
         self.sb = TN()
         self.dpytype = dtype
+        self.host = None
 
     def open(self, host):
         try:
@@ -26,18 +28,28 @@ class rokuSB:
                 print("SB not responding")
                 self.sb.close()
                 return False
+
         except (ConnectionError, socket.error) as err:
             print("SoundBridge '{}', not found or connect failure = {}".format(host, err))
             return False
 
-        self.ecount = 0
+        # Save host for reopen()
+        self.host = host
+        # Set character encoding default
+        self.msg(encoding='utf8')
         return True
+
+    def reopen(self):
+        if (self.host is None):
+            return False
+        assert(self.sb.get_socket() is None)
+        return self.open(self.host)
 
     def close(self):
         if (self.sb.get_socket() is None):
             return
         try:
-            self.cmd("sketch -c clear")
+            # self.cmd("sketch -c clear")
             self.cmd("sketch -c exit")
             self.cmd("irman off")
             self.cmd("exit")
@@ -46,10 +58,11 @@ class rokuSB:
 
     # Optional args to msg (soundbridge display)
     #
-    # text          - default none - can be ommited to just set font and encoding
+    # text          - default none - can be omitted to just set font and encoding
     # x,y  location - default 0,0
     # font          -
     # clear         - 0/1 force the display to clear first (default 0)
+    # encoding      - set roku text encoding
     #
     def msg(self, **kwargs):
         x = kwargs.get('x', 0)

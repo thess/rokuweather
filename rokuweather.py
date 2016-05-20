@@ -14,16 +14,15 @@ Command-line opts:
 
 """
 import sys
-import getopt
 import time
-import socket
+import getopt
 
-import requests
 import xml.etree.ElementTree as ET
 from urllib import parse
+import requests
 
-from draw_icon import draw_icon
 import roku_tn
+from draw_icon import draw_icon
 
 
 def eprint(*args, **kwargs):
@@ -52,7 +51,7 @@ def main(argv=None):
     sb_open = False
 
     # Single panel display time
-    dpy_delay = 10
+    panel_delay = 10
 
     # Parse any command-line args
     if argv is None:
@@ -85,27 +84,27 @@ def main(argv=None):
 
         sb_host = args[0]
 
-        # Local sisplay panel functions
-        def current_conditions(sb, dpy_type):
+        # Local display panel functions
+        def current_conditions(sb):
             # Roku current weather to display
-            fnt = 1 if (dpy_type == 1) else 2
-            xoff = 80 if (dpy_type == 1) else 90
-            sb.msg(text=ctemp + "\xb0" + temp_units, font=10 if (dpy_type == 1) else 3, x=34, y=0, clear=True)
+            fnt = 1 if (sb.dpytype == 1) else 2
+            xoff = 80 if (sb.dpytype == 1) else 90
+            sb.msg(text=ctemp + "\xb0" + temp_units, font=10 if (sb.dpytype == 1) else 3, x=34, y=0, clear=True)
             sb.msg(text="{}, Humidity: {}%".format(ccond, humidity), font=fnt, x=xoff, y=0)
             sb.msg(text="Wind: {} at {}{}, Chill: {}\xb0{}".format(wvector, wspeed, speed_units, wchill, temp_units),
-                                                                font=fnt, x=xoff, y=8 if (dpy_type == 1) else 16)
+                                                                font=fnt, x=xoff, y=8 if (sb.dpytype == 1) else 16)
             draw_icon(sb, ccode, 0, 0)
             return True
 
-        def weather_preview(sb, dpy_type):
+        def weather_preview(sb):
             # Roku weather preview to display
             #  rest of today
-            ds = today_date.split()     # Need to fixup day to 2 digits
+            ds = today_date.split()     # Need to fix up day to 2 digits
             if (len(ds[0]) == 1):
                 ds[0] = ' ' + ds[0]
-            fnt = 1 if (dpy_type == 1) else 2
-            ymax = 15 if (dpy_type == 1) else 31
-            yoff = 8 if (dpy_type == 1) else 16
+            fnt = 1 if (sb.dpytype == 1) else 2
+            ymax = 15 if (sb.dpytype == 1) else 31
+            yoff = 8 if (sb.dpytype == 1) else 16
             sb.msg(text=today_day, font=fnt, x=0, y=0, clear=True)  # day
             sb.msg(text="{}.{}".format(ds[0], ds[1]), x=0, y=yoff)  # date
             sb.msg(text=today_high + "\xb0" + temp_units, x=82, y=0)  # max temp
@@ -119,43 +118,54 @@ def main(argv=None):
             ds = tomorrow_date.split()
             if (len(ds[0]) == 1):
                 ds[0] = ' ' + ds[0]
-            xoff = 227 if (dpy_type == 1) else 233
+            xoff = 227 if (sb.dpytype == 1) else 233
             sb.msg(text=tomorrow_day, font=fnt, x=145, y=0)  # day
             sb.msg(text="{}.{}".format(ds[0], ds[1]), x=145, y=yoff)  # date
             sb.msg(text=tomorrow_high + "\xb0" + temp_units, x=xoff, y=0)  # max temp
             sb.msg(text=tomorrow_low + "\xb0" + temp_units, x=xoff, y=yoff)  # min temp
 
-            draw_icon(sb, today_code, 47 if (dpy_type == 1) else 49, 0)
-            draw_icon(sb, tomorrow_code, 188 if (dpy_type == 1) else 194, 0)
+            draw_icon(sb, today_code, 47 if (sb.dpytype == 1) else 49, 0)
+            draw_icon(sb, tomorrow_code, 188 if (sb.dpytype == 1) else 194, 0)
             return True
 
-        def local_datetime(sb, dpy_type):
+        def local_datetime(sb):
             datetime = time.ctime()
             sb.msg(text=datetime[11:16] + "   " + datetime[:3] + ", " + datetime[4:10],
-                                                clear=True, font=10 if (dpy_type == 1) else 2, x=80, y=0)
-            return True if (dpy_type == 1) else False
+                                                clear=True, font=10 if (sb.dpytype == 1) else 2, x=80, y=0)
+            return True if (sb.dpytype == 1) else False
 
-        def sun_rise_set(sb: object, dpy_type: object) -> object:
-            fnt = 10 if (dpy_type == 1) else 2
-            yoff = 0 if (dpy_type == 1) else 16
-            sb.msg(text="Sunrise: " + sunrise, font=fnt, x=8, y=yoff, clear=True if (dpy_type == 1) else False)
+        def sun_rise_set(sb):
+            fnt = 10 if (sb.dpytype == 1) else 2
+            yoff = 0 if (sb.dpytype == 1) else 16
+            sb.msg(text="Sunrise: " + sunrise, font=fnt, x=8, y=yoff, clear=True if (sb.dpytype == 1) else False)
             sb.msg(text="Sunset: " + sunset, font=fnt, x=148, y=yoff)
             return True
+
+        def yahoo_error(sb, etext, ecode):
+            sb.msg(text=etext.format(ecode), clear=True, font=1, x=25, y=5 if (sb.dpytype == 1) else 10)
+            print(etext.format(ecode))
+            time.sleep(60)      # Show error for 1min
+            sb.close()          # Revert to normal display for 30min
+            time.sleep(30 * 60)
+            if (not sb.reopen()):
+                exit(1)
+            return
 
         # Main execution starts here
         # Create telnet instance
         screen = roku_tn.rokuSB(display_type)
 
+        if (not screen.open(sb_host)):
+            return 1  # message already printed
+
         # if reset requested, do it and exit
         if (reset_sb):
-            if (screen.open(sb_host)):
-                screen.close()
-                print("{} reset - exiting".format(sb_host))
-                return 0
-            else:
-                return 1    # message already printed
+            screen.close()
+            print("{} reset - exiting".format(sb_host))
+            return 0
 
         # Init counters, flags, timers, etc.
+        sb_open = True
         keepalive = True
         get_weather_time = 0
         # Dispatch for each screen display
@@ -163,10 +173,12 @@ def main(argv=None):
 
         # Query yahoo for location id (woeid)
         loc_query = 'select woeid from geo.places where text="' + location + '"'
-        qres = requests.get(yql_url + parse.quote(loc_query))
-        if (qres.status_code != 200):
-            print("Location query returned error = ", qres.status_code)
-            return 1
+        while (True):
+            qres = requests.get(yql_url + parse.quote(loc_query))
+            if (qres.status_code == 200):
+                break
+            yahoo_error(screen, "Location query returned error = {}", qres.status_code)
+            del qres
 
         root = ET.fromstring(qres.content)
         del qres
@@ -182,12 +194,12 @@ def main(argv=None):
             print("Location:", location, "(woeid = " + woeid + ")")
 
         # Loop until external termination request
+        w_query = 'select * from weather.forecast where woeid="' + woeid + '"'
         while (keepalive):
-
+            # (Re-)open display
             if (not sb_open):
                 if (screen.open(sb_host)):
                     sb_open = True
-                    screen.msg(encoding='utf8')
                 else:
                     # Snooze a while and try again
                     time.sleep(30)
@@ -198,18 +210,14 @@ def main(argv=None):
                     get_weather_time = now + 20 * 60
 
                     # Announce our intentions
-                    screen.clear()
-                    if (display_type == 2):
-                        screen.msg(text=getyahoodata, font=1, x=25, y=10)
-                    else:
-                        screen.msg(text=getyahoodata, font=1, x=25, y=5)
+                    screen.msg(text=getyahoodata, clear=True, font=1, x=25, y=5 if (display_type == 1) else 10)
 
                     # Get the weather using woeid from yahoo
-                    w_query = 'select * from weather.forecast where woeid="' + woeid + '"'
                     qres = requests.get(yql_url + parse.quote(w_query))
                     if (qres.status_code != 200):
-                        print("Weather query returned error = ", qres.status_code)
-                        break   # sleep & retury in loop
+                        yahoo_error(screen, "Weather query returned error = {}", qres.status_code)
+                        del qres
+                        continue   # sleep & retury in loop
 
                     root = ET.fromstring(qres.content)
                     del qres
@@ -290,8 +298,8 @@ def main(argv=None):
                 for disp_num in range(4):
                     if (debug_output):
                         print("Screen {}: {}".format(disp_num, time.ctime()[11:19]))
-                    if (display_panels[disp_num](screen, screen.dpytype)):
-                        time.sleep(dpy_delay)
+                    if (display_panels[disp_num](screen)):
+                        time.sleep(panel_delay)
 
             except:
                 err = sys.exc_info()[0]

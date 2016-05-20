@@ -1,8 +1,6 @@
 # Test drawing weather icon to Roku
 
 import sys
-import socket
-
 
 # Define generator for pbm tokens
 def tokenize(f):
