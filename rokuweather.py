@@ -13,7 +13,7 @@ Command-line opts:
 -r, --reset     Reset Soundbridge and exit sketch
 
 """
-import sys
+import sys, traceback
 import time
 import getopt
 
@@ -299,15 +299,17 @@ def main(argv=None):
                     if (debug_output):
                         print("Screen {}: {}".format(disp_num, time.ctime()[11:19]))
                     if (display_panels[disp_num](screen)):
-                        time.sleep(panel_delay)
+                        if (screen.keyproc(panel_delay) != 'TIMEOUT'):
+                            keepalive = False
 
             except:
-                err = sys.exc_info()[0]
+                exc_type, exc_value, exc_tb = sys.exc_info()
                 if (sb_open):
                     screen.close()
-                if (err == KeyboardInterrupt):
+                if (exc_type == KeyboardInterrupt):
                     return 0
-                eprint("Caught network or other error:", err)
+                eprint("-->Caught network or other error:")
+                traceback.print_exception(exc_type, exc_value, exc_tb)
                 # Continue and try re-connect
                 sb_open = False
                 time.sleep(30)

@@ -24,7 +24,7 @@ def draw_icon(sb, code, locx, locy):
     try:
         t = tokenize(f)
         nexttoken = lambda: next(t)
-        assert 'P1' == nexttoken(), 'Not a P1 PBM file'
+        assert ('P1' == nexttoken()), 'Not a P1 PBM file'
         # Get HxW dimensions
         sizex = int(nexttoken())
         sizey = int(nexttoken())

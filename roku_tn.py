@@ -1,7 +1,8 @@
 # Telnet comms to Roku Soundbridge
 
+import sys
 import socket
-from telnetlib import Telnet as TN
+from telnetlib import Telnet
 
 
 # Font List for costumization:
@@ -15,14 +16,13 @@ from telnetlib import Telnet as TN
 
 class rokuSB:
     def __init__(self, dtype):
-        self.sb = TN()
+        self.sb = Telnet()
         self.dpytype = dtype
         self.host = None
 
     def open(self, host):
         try:
-            self.sb.open(host, 4444, 2)
-
+            self.sb.open(host, 4444, 10)
             prompt = self.sb.expect([b'SoundBridge> ', b'sketch> '], 2)
             if (prompt[0] == -1):
                 print("SB not responding")
@@ -37,6 +37,7 @@ class rokuSB:
         self.host = host
         # Set character encoding default
         self.msg(encoding='utf8')
+        self.cmd("irman echo")
         return True
 
     def reopen(self):
@@ -53,8 +54,11 @@ class rokuSB:
             self.cmd("sketch -c exit")
             self.cmd("irman off")
             self.cmd("exit")
+        except socket.error:
+            print("Socket error in close = {}", sys.exc_info())
         finally:
-            self.sb.close()
+            if (self.sb.get_socket() is not None):
+                self.sb.close()
 
     # Optional args to msg (soundbridge display)
     #
@@ -91,9 +95,29 @@ class rokuSB:
         try:
             self.sb.write(text.encode('utf-8') + b'\n')
         except socket.error:
+            print("Socket error in write = {}", sys.exc_info())
             if (self.sb.get_socket() is not None):
                 self.sb.close()
             raise
 
     def clear(self):
         self.cmd("sketch -c clear")
+
+    # Handle input and look for IR commands between panels
+    def keyproc(self, timeout):
+        self.cmd("irman intercept")
+        try:
+            msg = self.sb.expect([b'irman: (.*)$'], timeout)
+        except EOFError:
+            if (self.sb.get_socket() is not None):
+                self.sb.close()
+            raise
+
+        # Got an IR code - pass it on to SB and exit app
+        self.cmd("irman off")
+        if (msg[0] == -1):
+            return 'TIMEOUT'
+        self.cmd("sketch -c exit")
+        ir_cmd = msg[1].group(1)
+        self.cmd("irman dispatch {}".format(ir_cmd))
+        return ir_cmd
