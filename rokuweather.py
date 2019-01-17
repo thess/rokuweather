@@ -17,12 +17,23 @@ import sys, traceback
 import time
 import getopt
 
-import xml.etree.ElementTree as ET
-from urllib import parse
-import requests
+import urllib
+from urllib import request
+import oauth2
 
 import roku_tn
 from draw_icon import draw_icon
+
+import xml.etree.ElementTree as elTree
+# API credentials
+import yql_data
+# Example file contents
+# Application credentials for Yahoo Weather API
+# yql_oauth = dict(
+#    clientid = "CLIENT_ID",
+#    secret = "CLIENT_SECRET",
+#    appid = "APP_ID",
+# )
 
 
 def eprint(*args, **kwargs):
@@ -37,7 +48,11 @@ class Usage(Exception):
 def main(argv=None):
     # Some constant defs
     getyahoodata = "Getting weather data from Yahoo..."
-    yql_url = "https://query.yahooapis.com/v1/public/yql?q="
+    yql_clientid = yql_data.yql_oauth['clientid']
+    yql_secret = yql_data.yql_oauth['secret']
+    yql_appid = yql_data.yql_oauth['appid']
+
+    yql_url = "https://weather-ydn-yql.media.yahoo.com/forecastrss?"
     ns = {'yweather': 'http://xml.weather.yahoo.com/ns/rss/1.0'}
 
     temp_units = 'F'
@@ -83,6 +98,21 @@ def main(argv=None):
             raise Usage("Display host name or IP required")
 
         sb_host = args[0]
+
+        def build_request(url, method='GET'):
+            params = {
+                'oauth_version': "1.0",
+                'oauth_nonce': oauth2.generate_nonce(),
+                'oauth_timestamp': int(time.time())
+            }
+            consumer = oauth2.Consumer(key=yql_clientid, secret=yql_secret)
+            params['oauth_consumer_key'] = consumer.key
+            params['Yahoo-App-Id'] = yql_appid
+
+            req = oauth2.Request(method=method, url=url, parameters=params)
+            signature_method = oauth2.SignatureMethod_HMAC_SHA1()
+            req.sign_request(signature_method, consumer, None)
+            return req
 
         # Local display panel functions
         def current_conditions(sb):
@@ -171,30 +201,8 @@ def main(argv=None):
         # Dispatch for each screen display
         display_panels = {0: current_conditions, 1: weather_preview, 2: local_datetime, 3: sun_rise_set}
 
-        # Query yahoo for location id (woeid)
-        loc_query = 'select woeid from geo.places where text="' + location + '"'
-        while (True):
-            qres = requests.get(yql_url + parse.quote(loc_query))
-            if (qres.status_code == 200):
-                break
-            yahoo_error(screen, "Location query returned error = {}", qres.status_code)
-            del qres
-
-        root = ET.fromstring(qres.content)
-        del qres
-
-        place = root.find('.//{http://where.yahooapis.com/v1/schema.rng}place')
-        woeid = place[0].text
-
-        if (woeid is None):
-            print("Location query for {} failed".format(location))
-            return 1
-
-        if (debug_output):
-            print("Location:", location, "(woeid = " + woeid + ")")
-
         # Loop until external termination request
-        w_query = 'select * from weather.forecast where woeid="' + woeid + '"'
+        yql_req = build_request(yql_url + 'location=' + location)
         while (keepalive):
             # (Re-)open display
             if (not sb_open):
@@ -213,14 +221,14 @@ def main(argv=None):
                     screen.msg(text=getyahoodata, clear=True, font=1, x=25, y=5 if (display_type == 1) else 10)
 
                     # Get the weather using woeid from yahoo
-                    qres = requests.get(yql_url + parse.quote(w_query))
-                    if (qres.status_code != 200):
-                        yahoo_error(screen, "Weather query returned error = {}", qres.status_code)
-                        del qres
+                    resp = urllib.request.urlopen(yql_req.to_url())
+                    if (resp.getcode() != 200):
+                        yahoo_error(screen, "Weather query returned error = {}", resp.getcode())
+                        del resp
                         continue   # sleep & retury in loop
 
-                    root = ET.fromstring(qres.content)
-                    del qres
+                    root = elTree.fromstring(resp.read())
+                    del resp
 
                     # Parse the returned XML from Yahoo
                     cond = root.find('.//yweather:condition', ns)
