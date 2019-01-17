@@ -25,9 +25,9 @@ import roku_tn
 from draw_icon import draw_icon
 
 import xml.etree.ElementTree as elTree
-# API credentials
-import yql_data
-# Example file contents
+# YDN API credentials (supply your own)
+from yql_data import yql_oauth
+# Example file ydl_data.py contents
 # Application credentials for Yahoo Weather API
 # yql_oauth = dict(
 #    clientid = "CLIENT_ID",
@@ -48,10 +48,9 @@ class Usage(Exception):
 def main(argv=None):
     # Some constant defs
     getyahoodata = "Getting weather data from Yahoo..."
-    yql_clientid = yql_data.yql_oauth['clientid']
-    yql_secret = yql_data.yql_oauth['secret']
-    yql_appid = yql_data.yql_oauth['appid']
-
+    yql_clientid = yql_oauth['clientid']
+    yql_secret = yql_oauth['secret']
+    yql_appid = yql_oauth['appid']
     yql_url = "https://weather-ydn-yql.media.yahoo.com/forecastrss?"
     ns = {'yweather': 'http://xml.weather.yahoo.com/ns/rss/1.0'}
 
@@ -202,7 +201,7 @@ def main(argv=None):
         display_panels = {0: current_conditions, 1: weather_preview, 2: local_datetime, 3: sun_rise_set}
 
         # Loop until external termination request
-        yql_req = build_request(yql_url + 'location=' + location)
+        woeid = None
         while (keepalive):
             # (Re-)open display
             if (not sb_open):
@@ -220,8 +219,11 @@ def main(argv=None):
                     # Announce our intentions
                     screen.msg(text=getyahoodata, clear=True, font=1, x=25, y=5 if (display_type == 1) else 10)
 
-                    # Get the weather using woeid from yahoo
+                    # Get the weather using oauth request object from yahoo
+                    yql_query = ('location=' + location) if (woeid is None) else ('woeid=' + woeid)
+                    yql_req = build_request(yql_url + yql_query)
                     resp = urllib.request.urlopen(yql_req.to_url())
+                    del yql_req
                     if (resp.getcode() != 200):
                         yahoo_error(screen, "Weather query returned error = {}", resp.getcode())
                         del resp
@@ -229,6 +231,16 @@ def main(argv=None):
 
                     root = elTree.fromstring(resp.read())
                     del resp
+
+                    # Get woeid if not yet known
+                    if (woeid is None):
+                        stmp = root.find('.//link').text
+                        idx = stmp.find("city-") + 5
+                        if (idx > 0):
+                            woeid = stmp[idx:].split('/')[0]
+                            if (debug_output):
+                                eprint("Got woeid = {}\n\n".format(woeid))
+                        del stmp
 
                     # Parse the returned XML from Yahoo
                     cond = root.find('.//yweather:condition', ns)
