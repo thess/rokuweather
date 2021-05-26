@@ -12,11 +12,12 @@ Command-line opts:
 
   -h, --help      This text
   -v, --verbose   Turn on debug output
-  -l, --location  Location (City,State), Default: "Boston,MA"
+  -l, --location  Location (City,State,Country or zip-code), Default: "Boston,MA,US"
+  -u, --units     Units of measurement (Standard, Metric or Imperial)
   -t, --type      Display type (1 := M1000/1, 2 := R1000)
   -r, --reset     Reset Soundbridge and exit sketch
 ```
 
 Example:
 
-`$ ./rokuweather.py -l "Watertown,MA" 192.168.123.445`
+`$ ./rokuweather.py -l "Watertown,MA,US" 192.168.123.445`

@@ -8,7 +8,8 @@ Command-line opts:
 
 -h, --help      This text
 -v, --verbose   Turn on debug output
--l, --location  Location (City,State) Default: "Boston,MA"
+-l, --location  Location (City,State,Country) Default: "Boston,MA,US"
+-u, --units     Units of measurement (Standard, Metric or Imperial)
 -t, --type      Display type (1 := M1000/1, 2 := R1000)
 -r, --reset     Reset Soundbridge and exit sketch
 
@@ -16,23 +17,25 @@ Command-line opts:
 import sys, traceback
 import time
 import getopt
-
-import urllib
-from urllib import request
-import oauth2
+import requests
+import json
 
 import roku_tn
-from draw_icon import draw_icon
+from draw_icon import wi_icons
 
-import xml.etree.ElementTree as elTree
-# YDN API credentials (supply your own)
-from yql_data import yql_oauth
-# Example file ydl_data.py contents
-# Application credentials for Yahoo Weather API
-# yql_oauth = dict(
-#    clientid = "CLIENT_ID",
-#    secret = "CLIENT_SECRET",
-#    appid = "APP_ID",
+# OpenWeather API credentials (supply your own)
+from ow_data import config
+
+# Example file ow_data.py contents
+# Application credentials for OpenWeather API
+# Either 'location' or 'lat' and 'lon' must be supplied
+# Location may be specified as zip-code. Country code is optional
+#config = dict(
+#    appid = "",
+#    location = "Boston,MA,US",
+#    units = "Imperial",
+#    #lat = "",
+#    #lon = "",
 # )
 
 
@@ -47,19 +50,25 @@ class Usage(Exception):
 
 def main(argv=None):
     # Some constant defs
-    getyahoodata = "Getting weather data from Yahoo..."
-    yql_clientid = yql_oauth['clientid']
-    yql_secret = yql_oauth['secret']
-    yql_appid = yql_oauth['appid']
-    yql_url = "https://weather-ydn-yql.media.yahoo.com/forecastrss?"
-    ns = {'yweather': 'http://xml.weather.yahoo.com/ns/rss/1.0'}
+    getowdata = "Getting weather data from OpenWeather..."
+    ow_appid = config['appid']
+    try:
+        ow_lat = config['lat']
+        ow_lon = config['lon']
+    except KeyError:
+        ow_lat = ow_lon = None
+        pass
 
-    temp_units = 'F'
-    speed_units = 'mph'
+    ow_url = "https://api.openweathermap.org/data/2.5/onecall"
+    ow_url_current = "https://api.openweathermap.org/data/2.5/weather"
+    try:
+        location = config['location']
+    except KeyError:
+        location = None
+        pass
 
-    wind_vector = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW']
-
-    location = "Boston,MA"
+    wind_vector = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE',
+                   'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW']
     # Type 1 := 280x16, 2 := 280x32
     display_type = 1
     sb_open = False
@@ -72,13 +81,14 @@ def main(argv=None):
         argv = sys.argv
     try:
         try:
-            opts, args = getopt.getopt(argv[1:], "hvl:t:r", ["help", "verbose", "location=", "type="])
+            opts, args = getopt.getopt(argv[1:], "hvl:t:ru:", ["help", "verbose", "location=", "type=", "reset", "units="])
         except getopt.error as msg:
             raise Usage(msg)
 
         # Gather command options
         debug_output = False
         reset_sb = False
+        units = None
         for o, v in opts:
             if (o == '-v'):
                 debug_output = True
@@ -91,6 +101,21 @@ def main(argv=None):
                 display_type = v
             if (o in ["-r", "--reset"]):
                 reset_sb = True
+            if (o in ["-u", "--units"]):
+                units = v.lower()
+
+        if units is None:
+            units = 'imperial'
+
+        if units == 'imperial':
+            temp_units = 'F'
+            speed_units = 'mph'
+        elif units == 'metric':
+            temp_units = 'C'
+            speed_units = 'm/s'
+        else:
+            temp_units ='K'
+            speed_units = 'm/s'
 
         # Remaining arg is display host
         if (len(args) != 1):
@@ -98,69 +123,47 @@ def main(argv=None):
 
         sb_host = args[0]
 
-        def build_request(url, method='GET'):
-            params = {
-                'oauth_version': "1.0",
-                'oauth_nonce': oauth2.generate_nonce(),
-                'oauth_timestamp': int(time.time())
-            }
-            consumer = oauth2.Consumer(key=yql_clientid, secret=yql_secret)
-            params['oauth_consumer_key'] = consumer.key
-            params['Yahoo-App-Id'] = yql_appid
-
-            req = oauth2.Request(method=method, url=url, parameters=params)
-            signature_method = oauth2.SignatureMethod_HMAC_SHA1()
-            req.sign_request(signature_method, consumer, None)
-            return req
-
         # Local display panel functions
         def current_conditions(sb):
             # Roku current weather to display
             fnt = 1 if (sb.dpytype == 1) else 2
             xoff = 80 if (sb.dpytype == 1) else 90
-            sb.msg(text=ctemp + "\xb0" + temp_units, font=10 if (sb.dpytype == 1) else 3, x=34, y=0, clear=True)
-            sb.msg(text="{}, Humidity: {}%".format(ccond, humidity), font=fnt, x=xoff, y=0)
+            sb.msg(text="{}\xb0{}".format(ctemp, temp_units), font=10 if (sb.dpytype == 1) else 3, x=34, y=0, clear=True)
+            sb.msg(text="{}, Humidity: {}%".format(cdescr, humidity), font=fnt, x=xoff, y=0)
             sb.msg(text="Wind: {} at {}{}, Chill: {}\xb0{}".format(wvector, wspeed, speed_units, wchill, temp_units),
                                                                 font=fnt, x=xoff, y=8 if (sb.dpytype == 1) else 16)
-            draw_icon(sb, ccode, 0, 0)
+            icon_map.drawItAt(sb, ccode, 0, 0)
             return True
 
         def weather_preview(sb):
             # Roku weather preview to display
             #  rest of today
-            ds = today_date.split()     # Need to fix up day to 2 digits
-            if (len(ds[0]) == 1):
-                ds[0] = ' ' + ds[0]
             fnt = 1 if (sb.dpytype == 1) else 2
             ymax = 15 if (sb.dpytype == 1) else 31
             yoff = 8 if (sb.dpytype == 1) else 16
             sb.msg(text=today_day, font=fnt, x=0, y=0, clear=True)  # day
-            sb.msg(text="{}.{}".format(ds[0], ds[1]), x=0, y=yoff)  # date
-            sb.msg(text=today_high + "\xb0" + temp_units, x=82, y=0)  # max temp
-            sb.msg(text=today_low + "\xb0" + temp_units, x=82, y=yoff)  # min temp
+            sb.msg(text=today_date, x=0, y=yoff)  # date
+            sb.msg(text="{}\xb0{}".format(today_high, temp_units), x=82, y=0)  # max temp
+            sb.msg(text="{}\xb0{}".format(today_low, temp_units), x=82, y=yoff)  # min temp
             # Clear second half and  draw border line
             sb.cmd("sketch -c color 0")
             sb.cmd("sketch -c rect 139 0 141 {}".format(ymax))
             sb.cmd("sketch -c color 1")
             sb.cmd("sketch -c line 140 0 140 {}".format(ymax))
             # tomorrow
-            ds = tomorrow_date.split()
-            if (len(ds[0]) == 1):
-                ds[0] = ' ' + ds[0]
             xoff = 227 if (sb.dpytype == 1) else 233
             sb.msg(text=tomorrow_day, font=fnt, x=145, y=0)  # day
-            sb.msg(text="{}.{}".format(ds[0], ds[1]), x=145, y=yoff)  # date
-            sb.msg(text=tomorrow_high + "\xb0" + temp_units, x=xoff, y=0)  # max temp
-            sb.msg(text=tomorrow_low + "\xb0" + temp_units, x=xoff, y=yoff)  # min temp
+            sb.msg(text=tomorrow_date, x=145, y=yoff)  # date
+            sb.msg(text="{}\xb0{}".format(tomorrow_high, temp_units), x=xoff, y=0)  # max temp
+            sb.msg(text="{}\xb0{}".format(tomorrow_low, temp_units), x=xoff, y=yoff)  # min temp
 
-            draw_icon(sb, today_code, 47 if (sb.dpytype == 1) else 49, 0)
-            draw_icon(sb, tomorrow_code, 188 if (sb.dpytype == 1) else 194, 0)
+            icon_map.drawItAt(sb, today_code, 47 if (sb.dpytype == 1) else 49, 0)
+            icon_map.drawItAt(sb, tomorrow_code, 188 if (sb.dpytype == 1) else 194, 0)
             return True
 
         def local_datetime(sb):
-            datetime = time.ctime()
-            sb.msg(text=datetime[11:16] + "   " + datetime[:3] + ", " + datetime[4:10],
-                                                clear=True, font=10 if (sb.dpytype == 1) else 2, x=80, y=0)
+            sb.msg(text=time.strftime('%H:%M   %A, %b %-d'),
+                   clear=True, font=10 if (sb.dpytype == 1) else 2, x=60, y=0)
             return True if (sb.dpytype == 1) else False
 
         def sun_rise_set(sb):
@@ -170,7 +173,7 @@ def main(argv=None):
             sb.msg(text="Sunset: " + sunset, font=fnt, x=148, y=yoff)
             return True
 
-        def yahoo_error(sb, etext, ecode):
+        def openweather_error(sb, etext, ecode):
             sb.msg(text=etext.format(ecode), clear=True, font=1, x=25, y=5 if (sb.dpytype == 1) else 10)
             print(etext.format(ecode))
             time.sleep(60)      # Show error for 1min
@@ -200,8 +203,36 @@ def main(argv=None):
         # Dispatch for each screen display
         display_panels = {0: current_conditions, 1: weather_preview, 2: local_datetime, 3: sun_rise_set}
 
+        # Find lat/lon from location
+        if ow_lat is None and ow_lon is None:
+            if location is None:
+                eprint("Either lat/lon or location must be specified")
+                return 2
+
+            # Determing if zip code or city,state given
+            if location.isdigit():
+                qloc = {'zip': location}
+            else:
+                qloc = {'q': location}
+            qloc['appid'] = ow_appid
+            resp = requests.get(ow_url_current, params=qloc)
+            if (resp.status_code != 200):
+                eprint("Location query returned error = {}", resp.status_code)
+                eprint("Try appending 2-character country code to location.")
+                return 1
+
+            current_info = json.loads(resp.text)
+            ow_lat = current_info['coord']['lat']
+            ow_lon = current_info['coord']['lon']
+            print("{} is located at lat: {}, lon: {}".format(location, ow_lat, ow_lon))
+            # cleanup local strings
+            del qloc
+            del resp
+            del current_info
+
+        icon_map = wi_icons()
         # Loop until external termination request
-        woeid = None
+        qforecast = {'lat': ow_lat, 'lon': ow_lon, 'units': units, 'exclude': 'hourly,minutely', 'appid': ow_appid}
         while (keepalive):
             # (Re-)open display
             if (not sb_open):
@@ -217,102 +248,77 @@ def main(argv=None):
                     get_weather_time = now + 20 * 60
 
                     # Announce our intentions
-                    screen.msg(text=getyahoodata, clear=True, font=1, x=25, y=5 if (display_type == 1) else 10)
-
-                    # Get the weather using oauth request object from yahoo
-                    yql_query = ('location=' + location) if (woeid is None) else ('woeid=' + woeid)
-                    yql_req = build_request(yql_url + yql_query)
-                    resp = urllib.request.urlopen(yql_req.to_url())
-                    del yql_req
-                    if (resp.getcode() != 200):
-                        yahoo_error(screen, "Weather query returned error = {}", resp.getcode())
+                    screen.msg(text=getowdata, clear=True, font=1, x=25, y=5 if (display_type == 1) else 10)
+                    # Get the weather from OpenWeather
+                    resp = requests.get(ow_url, params=qforecast)
+                    if (resp.status_code != 200):
+                        openweather_error(screen, "Weather query returned error = {}", resp.status_code)
                         del resp
                         continue   # sleep & retury in loop
 
-                    root = elTree.fromstring(resp.read())
+                    # JSON returned in text
+                    wdata = json.loads(resp.text)
                     del resp
 
-                    # Get woeid if not yet known
-                    if (woeid is None):
-                        stmp = root.find('.//link').text
-                        idx = stmp.find("city-") + 5
-                        if (idx > 0):
-                            woeid = stmp[idx:].split('/')[0]
-                            if (debug_output):
-                                eprint("Got woeid = {}\n\n".format(woeid))
-                        del stmp
+                    # Get our info from the JSON returned from OpenWeather
+                    ccond = wdata['current']
+                    cdescr = ccond['weather'][0]['description']
+                    ccode = ccond['weather'][0]['id']
+                    ctemp = int(round(ccond['temp']))
 
-                    # Parse the returned XML from Yahoo
-                    cond = root.find('.//yweather:condition', ns)
-                    ccond = cond.attrib.get('text')
-                    ctemp = cond.attrib.get('temp')
-                    ccode = cond.attrib.get('code')
+                    wspeed = int(round(ccond['wind_speed']))
+                    wchill = int(round(ccond['feels_like']))
+                    wdir = ccond['wind_deg']
 
-                    wind = root.find('.//yweather:wind', ns)
-                    wspeed = wind.attrib.get('speed')
-                    wchill = wind.attrib.get('chill')
-                    wdir = wind.attrib.get('direction')
-
-                    atmos = root.find('.//yweather:atmosphere', ns)
-                    humidity = atmos.attrib.get('humidity')
-                    vis = atmos.attrib.get('visibility')
-                    pressure = atmos.attrib.get('pressure')
-                    rising = atmos.attrib.get('rising')
-                    baro = {'0': 'steady', '1': 'rising', '2': 'falling'}[rising]
+                    humidity = ccond['humidity']
+                    vis = ccond['visibility']
+                    pressure = ccond['pressure']
 
                     wvector = wind_vector[int((float(wdir) / 22.5) + 0.5) % 16]
                     if (debug_output):
-                        print("Current conditions: ({})\nTemp: {}\xb0{} {}, ".format(ccode, ctemp, temp_units, ccond),
+                        print("Current conditions: ({})\nTemp: {}\xb0{} {}, ".format(ccode, ctemp, temp_units, cdescr),
                               end='')
                         print("Feels like:", wchill, "Wind:", wvector, "Direction: {}deg".format(wdir))
-                        print("Humidity {}%, visibility {:2.1f}mi, ".format(humidity, float(vis)), end='')
-                        print("Pressure {:4.1f}mb, {}".format(float(pressure), baro))
+                        print("Humidity {}%, visibility {:2.1f}mi, ".format(humidity, float(vis) / 1609.344), end='')
+                        print("Pressure {:4.1f}mb".format(float(pressure)))
 
-                    astro = root.find('.//yweather:astronomy', ns)
-                    sunrise = astro.attrib.get('sunrise')
-                    if (sunrise[4] != ' '):
-                        sunrise = sunrise[:2] + '0' + sunrise[2:]
-                    sunset = astro.attrib.get('sunset')
-                    if (sunset[4] != ' '):
-                        sunset = sunset[:2] + '0' + sunset[2:]
+                    # We want am/pm in lowercase, no leading zero
+                    sunrise = time.strftime("%-I:%M %P", time.localtime(ccond['sunrise']))
+                    sunset = time.strftime("%-I:%M %P", time.localtime(ccond['sunset']))
 
                     if (debug_output):
-                        print("Sunrise", sunrise, "Sunset", sunset)
+                        print("Sunrise:", sunrise, "Sunset:", sunset)
 
                     # Only need today and tomorrow (1st 2)
-                    today = None
-                    tomorrow = None
-                    for yw in root.findall('.//yweather:forecast', ns):
-                        if (today is None):
-                            today = yw
-                            continue
+                    today = wdata['daily'][0]
+                    tomorrow = wdata['daily'][1]
 
-                        if (tomorrow is None):
-                            tomorrow = yw
-                            break
-
-                    today_high = today.attrib.get('high')
-                    today_low = today.attrib.get('low')
-                    today_date = today.attrib.get('date')
-                    today_day = today.attrib.get('day')
-                    today_code = today.attrib.get('code')
+                    today_high = int(round(today['temp']['max']))
+                    today_low = int(round(today['temp']['min']))
+                    today_time = time.localtime(today['dt'])
+                    today_date = time.strftime("%e.%b", today_time)
+                    today_day = time.strftime("%a", today_time)
+                    today_code = today['weather'][0]['id']
 
                     if (debug_output):
                         print("\nForecast:")
                         print("{} {}".format(today_day, today_date), "({}) {}".format(today_code,
-                                                                            today.attrib.get('text')), end='')
+                                                                            today['weather'][0]['description']), end='')
                         print(", High: {}, Low: {}".format(today_high, today_low))
 
-                    tomorrow_high = tomorrow.attrib.get('high')
-                    tomorrow_low = tomorrow.attrib.get('low')
-                    tomorrow_date = tomorrow.attrib.get('date')
-                    tomorrow_day = tomorrow.attrib.get('day')
-                    tomorrow_code = tomorrow.attrib.get('code')
+                    tomorrow_high = int(round(tomorrow['temp']['max']))
+                    tomorrow_low = int(round(tomorrow['temp']['min']))
+                    tomorrow_time = time.localtime(tomorrow['dt'])
+                    tomorrow_date = time.strftime("%e.%b", tomorrow_time)
+                    tomorrow_day = time.strftime("%a", tomorrow_time)
+                    tomorrow_code = tomorrow['weather'][0]['id']
 
                     if (debug_output):
                         print("{} {}".format(tomorrow_day, tomorrow_date), "({}) {}".format(tomorrow_code,
-                                                                    tomorrow.attrib.get('text')), end='')
+                                                                    tomorrow['weather'][0]['description']), end='')
                         print(", High: {}, Low: {}".format(tomorrow_high, tomorrow_low))
+                    # Done with response data
+                    del wdata
 
                 # Update display (select screen)
                 for disp_num in range(4):
