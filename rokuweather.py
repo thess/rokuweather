@@ -14,7 +14,8 @@ Command-line opts:
 -r, --reset     Reset Soundbridge and exit sketch
 
 """
-import sys, traceback
+import sys
+import traceback
 import time
 import getopt
 import requests
@@ -30,7 +31,7 @@ from ow_data import config
 # Application credentials for OpenWeather API
 # Either 'location' or 'lat' and 'lon' must be supplied
 # Location may be specified as zip-code. Country code is optional
-#config = dict(
+# config = dict(
 #    appid = "",
 #    location = "Boston,MA,US",
 #    units = "Imperial",
@@ -81,7 +82,8 @@ def main(argv=None):
         argv = sys.argv
     try:
         try:
-            opts, args = getopt.getopt(argv[1:], "hvl:t:ru:", ["help", "verbose", "location=", "type=", "reset", "units="])
+            opts, args = getopt.getopt(argv[1:], "hvl:t:ru:", ["help", "verbose", "location=",
+                                                               "type=", "reset", "units="])
         except getopt.error as msg:
             raise Usage(msg)
 
@@ -114,7 +116,7 @@ def main(argv=None):
             temp_units = 'C'
             speed_units = 'm/s'
         else:
-            temp_units ='K'
+            temp_units = 'K'
             speed_units = 'm/s'
 
         # Remaining arg is display host
@@ -128,7 +130,8 @@ def main(argv=None):
             # Roku current weather to display
             fnt = 1 if (sb.dpytype == 1) else 2
             xoff = 80 if (sb.dpytype == 1) else 90
-            sb.msg(text="{}\xb0{}".format(ctemp, temp_units), font=10 if (sb.dpytype == 1) else 3, x=34, y=0, clear=True)
+            sb.msg(text="{}\xb0{}".format(ctemp, temp_units), font=10 if (sb.dpytype == 1) else 3,
+                                                                x=34, y=0, clear=True)
             sb.msg(text="{}, Humidity: {}%".format(cdescr, humidity), font=fnt, x=xoff, y=0)
             sb.msg(text="Wind: {} at {}{}, Chill: {}\xb0{}".format(wvector, wspeed, speed_units, wchill, temp_units),
                                                                 font=fnt, x=xoff, y=8 if (sb.dpytype == 1) else 16)
@@ -333,6 +336,7 @@ def main(argv=None):
                 if (sb_open):
                     screen.close()
                 if (exc_type == KeyboardInterrupt):
+                    eprint("Exiting...")
                     return 0
                 eprint("-->Caught network or other error:")
                 traceback.print_exception(exc_type, exc_value, exc_tb)

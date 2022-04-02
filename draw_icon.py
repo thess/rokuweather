@@ -3,6 +3,7 @@
 import sys
 import json
 
+
 # Map OWM condition codes to icon
 # 'altid' refers to yahoo/wu weather icons
 class wi_icons(object):
@@ -12,7 +13,7 @@ class wi_icons(object):
             self.wi_map = json.load(icons)
             icons.close()
         except FileNotFoundError:
-            print("Cannnot find icons.json")
+            print("Cannot find icons.json")
             exit()
         except json.JSONDecodeError:
             print("Error parsing icons file")
@@ -26,7 +27,6 @@ class wi_icons(object):
                 for t in line.split():
                     # return single atom
                     yield t
-
 
     def drawItAt(self, sb, code, locx, locy):
         try:
@@ -82,7 +82,7 @@ class wi_icons(object):
             # Close tokenizer
             t.close()
 
-        except:
+        except Exception:
             print("Problem processing {}.pbm file. Err = {}".format(prefix + code, sys.exc_info()[0]))
             f.close()
             raise
